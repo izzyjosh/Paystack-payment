@@ -1,5 +1,6 @@
 from django.shortcuts import render, redirect
 from .models import Payment, UserWallet
+from django.contrib import messages
 from django.conf import settings
 
 def initiate_payment(request):
@@ -9,16 +10,21 @@ def initiate_payment(request):
 
         pk = settings.PAYSTACK_PUBLIC_KEY
 
-        payment = Payment.objects.create(amount=amount, email=email, user=request.user)
-        payment.save()
+        user_wallet = UserWallet.objects.get(user=request.user)
+        if user_wallet.balance >= int(amount):
+            payment = Payment.objects.create(amount=amount, email=email, user=request.user)
+            payment.save()
+            context = {
+                    'payment': payment,
+                    'field_values': request.POST,
+                    'paystack_pub_key': pk,
+                    'amount_value': payment.amount_value(),
+                    }
+            return render(request, 'make_payment.html', context)
 
-        context = {
-            'payment': payment,
-            'field_values': request.POST,
-            'paystack_pub_key': pk,
-            'amount_value': payment.amount_value(),
-        }
-        return render(request, 'make_payment.html', context)
+        else:
+            messages.error(request,f"insufficient balance")
+            return redirect("initiate_payment")
 
     return render(request, 'payment.html')
 
@@ -29,7 +35,7 @@ def verify_payment(request, ref):
 
     if verified:
         user_wallet = UserWallet.objects.get(user=request.user)
-        user_wallet.balance += payment.amount
+        user_wallet.balance -= payment.amount
         user_wallet.save()
         print(request.user.username, " funded wallet successfully")
         return render(request, "success.html")
